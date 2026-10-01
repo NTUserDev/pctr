@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pctr"
-version = "0.3.3"
+version = "0.3.4"
 description = "Element-based Windows UI Automation CLI for AI agents. Find controls by name/type/id and click, type, hold, drag, and screenshot - no pixel coordinates."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -34,9 +34,11 @@ dependencies = [
 
 [project.optional-dependencies]
 vision = ["ultralytics>=8.2"]
+mcp = ["mcp>=2"]
 
 [project.scripts]
 pctr = "pctr.cli:main"
+pctr-mcp = "pctr.mcp_server:main"
 
 [project.urls]
 Homepage = "https://github.com/Space-lab515/pctr"

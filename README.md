@@ -20,6 +20,28 @@ pip install "pctr[vision]"   # adds ultralytics for `pctr look`
 
 Windows only.
 
+## MCP server
+
+`pctr` ships a Model Context Protocol server so MCP clients (Claude Desktop,
+Cursor, opencode, ...) can drive the Windows desktop directly:
+
+```bash
+pip install "pctr[mcp]"
+```
+
+Add it to your client config (stdio):
+
+```json
+{ "mcpServers": { "pctr": { "command": "pctr-mcp" } } }
+```
+
+(or `"command": "python", "args": ["-m", "pctr.mcp_server"]`)
+
+Tools exposed: `pctr_windows`, `pctr_tree`, `pctr_find`, `pctr_click`,
+`pctr_set`, `pctr_type`, `pctr_keys`, `pctr_hotkey`, `pctr_focus`, `pctr_wait`,
+`pctr_shot`, `pctr_ocr`, `pctr_ocrfind`, `pctr_ocrclick`, `pctr_look`,
+`pctr_desktop`.
+
 ## Commands
 
 | Command | What it does |
