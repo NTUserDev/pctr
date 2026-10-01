@@ -41,9 +41,9 @@ pctr = "pctr.cli:main"
 pctr-mcp = "pctr.mcp_server:main"
 
 [project.urls]
-Homepage = "https://github.com/Space-lab515/pctr"
-Repository = "https://github.com/Space-lab515/pctr"
-Issues = "https://github.com/Space-lab515/pctr/issues"
+Homepage = "https://github.com/NTUserDev/pctr"
+Repository = "https://github.com/NTUserDev/pctr"
+Issues = "https://github.com/NTUserDev/pctr/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
