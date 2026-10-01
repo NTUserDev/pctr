@@ -11,6 +11,10 @@ mouse and keyboard input. On top of UIA it also offers **OCR**
 (`Windows.Media.Ocr`) and **YOLO-World** open-vocabulary detection for text and
 objects that aren't exposed as controls.
 
+![pctr driving Notepad by element name, then reading the text back with OCR](docs/demo.gif)
+
+*UIA finds/clicks/sets controls by name; OCR reads the screen back. (Recorded with OBS, driven by pctr itself.)*
+
 ## Install
 
 ```bash
