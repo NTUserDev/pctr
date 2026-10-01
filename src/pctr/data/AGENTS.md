@@ -22,3 +22,4 @@ pctr look --for "a red error icon"    # fallback: open-vocab object detection
 - Virtual desktops: `pctr desktop list/windows/where/on-current` (read-only), `next/prev/new/close` (switches the active desktop), `move-window --to N`. UIA actions (`invoke`/`set`) reach windows on other desktops without switching; raw mouse/keys do not. `move-window` is blocked on Win11.
 
 Run `pctr -h` for all commands. Full skill: `pctr skill`.
+MCP: `pip install "pctr[mcp]"` and register `pctr-mcp` as a stdio MCP server.

@@ -116,6 +116,14 @@ pctr desktop move-window --title RE --to N
   `PCTR_YOLO_MODEL` env var to avoid the first-run download. Progress bars are
   sent to stderr, so `look`'s stdout stays parseable.
 
+## MCP server
+
+`pip install "pctr[mcp]"` then register `pctr-mcp` as a stdio MCP server
+(Claude Desktop / Cursor / opencode). Exposes `pctr_windows`, `pctr_tree`,
+`pctr_find`, `pctr_click`, `pctr_set`, `pctr_type`, `pctr_keys`, `pctr_hotkey`,
+`pctr_focus`, `pctr_wait`, `pctr_shot`, `pctr_ocr`, `pctr_ocrfind`,
+`pctr_ocrclick`, `pctr_look`, `pctr_desktop`.
+
 ## Setup
 
 ```bash
