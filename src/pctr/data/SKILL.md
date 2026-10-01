@@ -5,10 +5,11 @@ description: Drive native Windows desktop apps (not browsers) with the pctr CLI 
 
 # pctr - desktop control
 
-Element-based Windows automation. Find a control by its name / control type /
-automation id and act on it, so window moves, DPI, and layout changes don't break
-you. Windows only (UI Automation). Built on `pywinauto` + `uiautomation`, with
-`pyautogui` / `pydirectinput` for raw mouse and keyboard.
+**PCTR — Personal Computer Tactile Response.** Element-based Windows automation.
+Find a control by its name / control type / automation id and act on it, so
+window moves, DPI, and layout changes don't break you. Windows only (UI
+Automation). Built on `pywinauto` + `uiautomation`, with `pyautogui` /
+`pydirectinput` for raw mouse and keyboard.
 
 ## Three ways to find a target
 

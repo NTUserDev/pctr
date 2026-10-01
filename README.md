@@ -1,5 +1,7 @@
 # pctr
 
+**PCTR — Personal Computer Tactile Response**
+
 Element-based Windows UI Automation CLI for AI agents.
 
 Instead of screenshotting and guessing pixel coordinates, `pctr` finds controls
