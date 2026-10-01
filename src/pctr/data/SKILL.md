@@ -1,0 +1,124 @@
+---
+name: pctr
+description: Drive native Windows desktop apps (not browsers) with the pctr CLI powered by pywinauto/UIA, with OCR and YOLO-World fallbacks. Use whenever you must control or inspect a desktop GUI - list windows, dump a control tree, click buttons, type into fields, read on-screen text by OCR, find objects by description, send hotkeys, hold keys, drag, or screenshot an app. Element-based, no pixel hunting. Triggers: pctr, UIA, UI automation, pywinauto, desktop automation, click a button in an app, type into an app, drive a GUI, control a Windows application, usecomputer.
+---
+
+# pctr - desktop control
+
+Element-based Windows automation. Find a control by its name / control type /
+automation id and act on it, so window moves, DPI, and layout changes don't break
+you. Windows only (UI Automation). Built on `pywinauto` + `uiautomation`, with
+`pyautogui` / `pydirectinput` for raw mouse and keyboard.
+
+## Three ways to find a target
+
+1. **UIA elements** (best) - `tree` / `find` / `click` by control name/id.
+2. **OCR** - `ocr` / `ocrfind` / `ocrclick` (Windows built-in `Windows.Media.Ocr`, no deps) reads on-screen text that isn't exposed as a control.
+3. **YOLO-World** - `look --for "..."` / `lookclick --for "..."` open-vocabulary object detection by natural-language prompt (canvas, games, custom-drawn UI).
+
+## The loop
+
+```bash
+pctr windows                                   # top-level windows + pids
+pctr tree   --title "Notepad" --limit 120      # dump the control tree
+pctr find   --title "Notepad" --name "Submit"
+pctr click  --title "Notepad" --name "^File$" --control-type MenuItem
+pctr shot   --title "Notepad" --out "C:\temp\np.png"
+```
+
+Look at `tree`/`find` output first - the name/type/id it prints is what you pass
+back as `--name`, `--control-type`, `--auto-id`.
+
+## Commands
+
+| Command | What it does |
+|---------|--------------|
+| `windows [--filter RE] [--process PID]` | List top-level windows. |
+| `tree --title RE [--depth N] [--limit N]` | Dump the UIA control tree. |
+| `find --title RE [--name RE] [--limit N] [--nth N]` | List matching elements. |
+| `click --title RE --name RE [--method auto\|invoke\|mouse] [--dbl]` | Click an element. |
+| `set --title RE --name RE --text S` | Set a field via the UIA ValuePattern (exact, instant). |
+| `type [--title RE --name RE] --text S [--delay 0.03] [--chunk 1]` | Send keystrokes (see caveats). |
+| `keys --keys "{ENTER}"` | Global combo via pywinauto send_keys syntax. |
+| `hotkey --keys ctrl+s` | Modifier combo (prefer this over `keys "^s"`). |
+| `focus --title RE` | Bring a window to the foreground. |
+| `wait --title RE --name RE [--timeout S]` | Wait for an element. |
+| `shot [--title RE] --out PATH` | Screenshot the screen or a window. |
+| `size` | Print primary screen size as WxH. |
+| `desktop <action>` | Windows virtual desktops: `list` / `windows` / `where` / `on-current` / `next` / `prev` / `new` / `close` / `move-window`. |
+| `move --x N --y N` / `down` / `up` / `hold --ms N` | Raw mouse control (`--direct` for games). |
+| `drag --start x,y --end x,y [--duration S]` | Drag between points. |
+| `keydown / keyup --key a` / `keyhold --key w --ms 1500` | Hold keyboard keys (`--direct` for games). |
+| `ocr [--title RE]` | OCR the screen (or window); list words with boxes. |
+| `ocrfind --text RE` | OCR then list matches with click centers. Matches **single words**. |
+| `ocrclick --text RE [--nth N]` | OCR then click a word. |
+| `look --for "a dog" [--title RE] [--conf X]` | YOLO-World detect objects by text prompt. |
+| `lookclick --for "a dog" [--nth N]` | Detect then click the top match. |
+| `skill [--install]` / `setup` | Print/install this skill + an AGENTS.md section. |
+
+Filters: `--title` (regex), `--name` (regex), `--control-type`, `--auto-id`,
+`--nth`, `--process`, `--timeout`.
+
+### Selectors
+
+`click`, `set`, `wait` accept **any** selector - you do **not** have to pass
+`--name`. Give at least one of `--title` / `--process` / `--name` /
+`--control-type` / `--auto-id`. `tree` and `find` require a *window* selector
+(`--title` or `--process`) so they never silently grab the wrong window.
+
+### Exit codes
+
+- `0` - success (and for `ocr`).
+- `1` - no match: `find`/`ocrfind` found nothing, or the window wasn't found.
+- `2` - usage/validation error: bad regex, bad `x,y` pair, unwritable `--out`, missing selector.
+
+Errors print a single `error: ...` line (no tracebacks).
+
+## Patterns
+
+- **Text fields -> use `set`, not `type`.** `set` uses the ValuePattern: atomic, exact, can't drop chars. `type`'s element path goes through pywinauto `type_keys`, which interprets `{ } + ^ % ~ ( )` as key syntax - so `--text "a{b}"` is **not** literal and an unmatched `{` fails. Prefer `set`; use `type` only for plain text on fields with no ValuePattern.
+- **Global `type`/`keys` go to the OS-focused window** - `pctr focus --title ...` first.
+- **Prefer `hotkey ctrl+s` over `keys "^s"`.** The `^` modifier in `keys` is fragile through shells; `hotkey` takes `ctrl+alt+x` form and is reliable.
+- Click falls back to a real mouse click when a control has no invoke pattern.
+- Disambiguate with `--control-type` / `--auto-id` / `--nth`.
+- **Quote regex args.** `$`, `^`, `|` are regex metachars and can be mangled by your shell; single-quote them, or use plain substrings.
+
+## App notes
+
+- **Qt apps** expose a rich tree including embedded webviews.
+- **Electron apps** (Discord, VS Code, OpenCode) hide web content behind the frame - the tree shows only window buttons. Use `focus` + global `type`/`keys`, verify with `shot`, and fall back to `ocr`/`look`. For deep control, drive them over CDP instead.
+- **Canvas / games / custom UI**: no tree - use `ocr` for text and `look` for objects.
+- **Games** (Minecraft, Trailmakers, ...) ignore synthetic input from `pyautogui`; pass `--direct` to mouse/key commands to use `pydirectinput`, and `pctr focus` the game first.
+
+## Virtual desktops
+
+pctr can see and drive windows across Windows virtual desktops.
+
+```bash
+pctr desktop list                       # desktops (#index, guid, [current], window count)
+pctr desktop windows --desktop 1        # windows living on desktop #1
+pctr desktop where --title "App"        # which desktop a window is on
+pctr desktop on-current --title "App"   # True / False
+pctr desktop next | prev | new | close  # switch (moves the active desktop)
+pctr desktop move-window --title RE --to N
+```
+
+- **Switching** (`next`/`prev`/`new`/`close`) uses the standard Win+Ctrl hotkeys and moves the **active** desktop (you included). Add `--direct` if a game has focus.
+- **Cross-desktop control:** UIA element actions (`click --method invoke`, `set`) reach windows on *another* desktop **without switching**, because they go through the accessibility layer, not screen input. Raw mouse/keys (mouse-fallback click, global `type`/`keys`, `--direct`) only affect the active desktop.
+- `list` / `windows` / `where` / `on-current` are read-only.
+- **`move-window` is blocked on Windows 11** - third-party `MoveWindowToDesktop` returns `Access denied` (works on Windows 10). Reads and UIA actions still work cross-desktop.
+
+## OCR / YOLO notes
+
+- `ocrfind`/`ocrclick` match **one word at a time** (Windows OCR tokenizes into words) - match a single distinctive word, not a phrase.
+- OCR needs the window visible/foreground; accuracy varies with font/scale.
+- `look` needs `pip install "pctr[vision]"`. Point at a local model with the
+  `PCTR_YOLO_MODEL` env var to avoid the first-run download. Progress bars are
+  sent to stderr, so `look`'s stdout stays parseable.
+
+## Setup
+
+```bash
+pip install pctr
+pctr setup        # installs this skill for opencode / claude / agents + appends to ./AGENTS.md
+```
