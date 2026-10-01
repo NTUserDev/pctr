@@ -20,6 +20,9 @@ pctr look --for "a red error icon"    # fallback: open-vocab object detection
 - Games ignore synthetic input: add `--direct` to mouse/key commands.
 - Electron apps expose only the frame - use `focus` + global keys, or CDP.
 - Virtual desktops: `pctr desktop list/windows/where/on-current` (read-only), `next/prev/new/close` (switches the active desktop), `move-window --to N`. UIA actions (`invoke`/`set`) reach windows on other desktops without switching; raw mouse/keys do not. `move-window` is blocked on Win11.
+- `--json` (global or per-command) gives machine-readable output for `windows/tree/find/ocr/ocrfind/look/desktop`; progress goes to stderr so stdout stays clean.
+- `--file FILE` runs a batch of commands (one per line, `#` comments, stops on first error).
+- `pctr ocr --lang de-DE` picks the OCR language (BCP-47).
 
 Run `pctr -h` for all commands. Full skill: `pctr skill`.
-MCP: `pip install "pctr[mcp]"` and register `pctr-mcp` as a stdio MCP server.
+MCP: `pip install "pctr[mcp]"`, then `pctr mcp start` (background http) or register `pctr-mcp` as a stdio server. Manage with `pctr mcp start|stop|restart|status|help`.

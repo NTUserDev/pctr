@@ -4,12 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pctr"
-version = "0.3.4"
+version = "0.3.5"
 description = "Element-based Windows UI Automation CLI for AI agents. Find controls by name/type/id and click, type, hold, drag, and screenshot - no pixel coordinates."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
-authors = [{ name = "Space-lab515" }]
+authors = [{ name = "NTUserDev" }]
 keywords = ["automation", "windows", "uia", "pywinauto", "desktop", "agent", "computer-use", "rpa"]
 classifiers = [
   "Development Status :: 4 - Beta",
@@ -35,6 +35,7 @@ dependencies = [
 [project.optional-dependencies]
 vision = ["ultralytics>=8.2"]
 mcp = ["mcp>=2"]
+all = ["pctr[vision,mcp]"]
 
 [project.scripts]
 pctr = "pctr.cli:main"
@@ -49,4 +50,4 @@ Issues = "https://github.com/NTUserDev/pctr/issues"
 where = ["src"]
 
 [tool.setuptools.package-data]
-pctr = ["data/*.md"]
+pctr = ["data/*.md", "py.typed"]

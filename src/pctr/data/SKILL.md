@@ -49,12 +49,15 @@ back as `--name`, `--control-type`, `--auto-id`.
 | `move --x N --y N` / `down` / `up` / `hold --ms N` | Raw mouse control (`--direct` for games). |
 | `drag --start x,y --end x,y [--duration S]` | Drag between points. |
 | `keydown / keyup --key a` / `keyhold --key w --ms 1500` | Hold keyboard keys (`--direct` for games). |
-| `ocr [--title RE]` | OCR the screen (or window); list words with boxes. |
-| `ocrfind --text RE` | OCR then list matches with click centers. Matches **single words**. |
-| `ocrclick --text RE [--nth N]` | OCR then click a word. |
+| `ocr [--title RE] [--lang TAG]` | OCR the screen (or window); list words with boxes. |
+| `ocrfind --text RE [--lang TAG]` | OCR then list matches with click centers. Matches **single words**. |
+| `ocrclick --text RE [--nth N] [--lang TAG]` | OCR then click a word. |
 | `look --for "a dog" [--title RE] [--conf X]` | YOLO-World detect objects by text prompt. |
 | `lookclick --for "a dog" [--nth N]` | Detect then click the top match. |
+| `mcp <start\|stop\|restart\|status\|help>` | Manage the MCP server (stdio or background http/sse). |
 | `skill [--install]` / `setup` | Print/install this skill + an AGENTS.md section. |
+
+Global flags: `--json` (machine-readable output) and `--file FILE` (batch).
 
 Filters: `--title` (regex), `--name` (regex), `--control-type`, `--auto-id`,
 `--nth`, `--process`, `--timeout`.
@@ -73,6 +76,33 @@ Filters: `--title` (regex), `--name` (regex), `--control-type`, `--auto-id`,
 - `2` - usage/validation error: bad regex, bad `x,y` pair, unwritable `--out`, missing selector.
 
 Errors print a single `error: ...` line (no tracebacks).
+
+### JSON output
+
+Add `--json` (global, or per-command) to get machine-readable output from
+`windows`, `tree`, `find`, `ocr`, `ocrfind`, `look`, and `desktop`:
+
+```bash
+pctr windows --json           # [{"hwnd":..,"pid":..,"title":".."}, ...]
+pctr find --title App --json  # {"window":"..","count":N,"matches":[{"name":..,"rect":[l,t,r,b]}, ..]}
+pctr desktop list --json      # [{"index":0,"guid":"..","current":true,"windows":11}, ..]
+pctr look --for "a car" --json   # [{"label":"..","conf":0.86,"x":..,"y":..,"box":[..]}, ..]
+```
+
+Human-readable progress goes to stderr, so JSON on stdout stays clean.
+
+### Batch files
+
+Run many commands from a file - one per line, `#` comments allowed, blank lines
+skipped:
+
+```bash
+pctr --file script.txt        # e.g. lines:  windows --filter Notepad
+pctr --json --file script.txt # --json applies to every command in the file
+```
+
+Stops on the first failing line and reports its line number. Each line is parsed
+exactly like a normal `pctr ...` invocation (same flags, same quoting rules).
 
 ## Patterns
 
@@ -124,9 +154,25 @@ pctr desktop move-window --title RE --to N
 `pctr_focus`, `pctr_wait`, `pctr_shot`, `pctr_ocr`, `pctr_ocrfind`,
 `pctr_ocrclick`, `pctr_look`, `pctr_desktop`.
 
+Manage or run it from the CLI:
+
+```bash
+pctr mcp status                                          # SDK + server state
+pctr mcp start --transport streamable-http --port 8765   # background HTTP server
+pctr mcp restart | pctr mcp stop
+pctr mcp help
+```
+
+`stdio` runs in the foreground (what an MCP client spawns); `sse` /
+`streamable-http` run in the background. HTTP endpoint:
+`http://127.0.0.1:8765/mcp` (streamable-http) or `…/sse` (sse).
+
 ## Setup
 
 ```bash
-pip install pctr
-pctr setup        # installs this skill for opencode / claude / agents + appends to ./AGENTS.md
+pip install pctr             # core (UIA + OCR)
+pip install "pctr[vision]"   # + ultralytics, for `pctr look`
+pip install "pctr[mcp]"      # + MCP SDK, for `pctr-mcp` / `pctr mcp`
+pip install "pctr[all]"      # all of the above
+pctr setup                   # installs this skill for opencode / claude / agents + appends to ./AGENTS.md
 ```

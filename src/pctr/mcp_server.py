@@ -27,7 +27,7 @@ except Exception:  # pragma: no cover
 
 server = MCPServer(
     "pctr",
-    version=_VERSION or "0.3.3",
+    version=_VERSION or "0.0.0",
     instructions=(
         "Element-based Windows UI automation. Find controls by name / control "
         "type / automation id instead of pixel coordinates, then click/type/etc. "
@@ -197,8 +197,23 @@ def pctr_desktop(action: str, title: str | None = None, process: int | None = No
     return _run(a)
 
 
-def main():
-    server.run(transport="stdio")
+def main(argv=None):
+    import argparse
+    ap = argparse.ArgumentParser(
+        prog="pctr-mcp",
+        description="pctr MCP server - element-based Windows UI automation over MCP.",
+    )
+    ap.add_argument("--transport", choices=["stdio", "sse", "streamable-http"], default="stdio",
+                    help="stdio (default, for MCP clients) or an HTTP transport")
+    ap.add_argument("--host", default="127.0.0.1")
+    ap.add_argument("--port", type=int, default=8765)
+    a = ap.parse_args(argv)
+    if a.transport == "streamable-http":
+        server.run(transport="streamable-http", host=a.host, port=a.port)
+    elif a.transport == "sse":
+        server.run(transport="sse", host=a.host, port=a.port)
+    else:
+        server.run(transport="stdio")
 
 
 if __name__ == "__main__":

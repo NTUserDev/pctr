@@ -130,6 +130,29 @@ def _describe(el):
     )
 
 
+def _print_json(obj):
+    import json
+    print(json.dumps(obj, ensure_ascii=False))
+
+
+def _is_json(args):
+    return bool(getattr(args, "json_out", False))
+
+
+def _el_dict(el, depth=None):
+    info = el.element_info
+    r = info.rectangle
+    d = {
+        "name": info.name,
+        "type": info.control_type,
+        "id": info.automation_id,
+        "rect": [r.left, r.top, r.right, r.bottom],
+    }
+    if depth is not None:
+        d["depth"] = depth
+    return d
+
+
 def _get_element(args):
     win = _find_window(args.title, getattr(args, "process", None), getattr(args, "timeout", 5.0))
     els = _matches(win, args.name, getattr(args, "control_type", None), getattr(args, "auto_id", None))
@@ -148,12 +171,18 @@ def _get_element(args):
 def cmd_windows(args):
     rx = _compile(args.filter, "filter") if args.filter else None
     proc = getattr(args, "process", None)
+    rows = []
     for hwnd, title, pid in _enum_top_windows():
         if rx and rx.search(title) is None:
             continue
         if proc is not None and pid != proc:
             continue
-        print("pid=%s | %s" % (pid, title))
+        rows.append({"hwnd": hwnd, "pid": pid, "title": title})
+    if _is_json(args):
+        _print_json(rows)
+        return
+    for r in rows:
+        print("pid=%s | %s" % (r["pid"], r["title"]))
 
 
 def _walk(root, max_depth):
@@ -180,27 +209,44 @@ def _walk(root, max_depth):
 
 def cmd_tree(args):
     win = _find_window(args.title, args.process, args.timeout)
-    print("WINDOW: %s (pid=%s)" % (win.window_text(), win.process_id()))
-    count = 0
     depth = getattr(args, "depth", None)
     depth_mode = depth is not None and 0 <= depth < 99
     it = _walk(win, depth) if depth_mode else ((el, 1) for el in win.descendants())
+    rows = []
+    truncated = False
     for el, d in it:
         try:
             el.element_info
         except Exception:
             continue
-        print("  %s%s" % ("  " * (d - 1) if depth_mode else "", _describe(el)))
-        count += 1
-        if count >= args.limit:
-            print("... (limit %d reached)" % args.limit)
+        rows.append(_el_dict(el, d if depth_mode else None))
+        if len(rows) >= args.limit:
+            truncated = True
             break
+    if _is_json(args):
+        _print_json({
+            "window": win.window_text(),
+            "pid": win.process_id(),
+            "elements": rows,
+            "truncated": truncated,
+        })
+        return
+    print("WINDOW: %s (pid=%s)" % (win.window_text(), win.process_id()))
+    for r in rows:
+        prefix = "  " * (r["depth"] - 1) if depth_mode else ""
+        print("  %s%s | type=%s | id=%s | rect=%d,%d,%d,%d" % (
+            prefix, r["name"], r["type"], r["id"], *r["rect"]))
+    if truncated:
+        print("... (limit %d reached)" % args.limit)
 
 
 def cmd_find(args):
     win = _find_window(args.title, args.process, args.timeout)
     els = _matches(win, args.name, args.control_type, args.auto_id)
     if not els:
+        if _is_json(args):
+            _print_json({"window": win.window_text(), "matches": [], "count": 0})
+            raise SystemExit(1)
         print("no matches")
         raise SystemExit(1)
     nth = getattr(args, "nth", 0) or 0
@@ -208,9 +254,16 @@ def cmd_find(args):
         if nth >= len(els):
             _fail("matched %d element(s); nth=%d out of range" % (len(els), nth))
         els = [els[nth]]
-    print("WINDOW: %s" % win.window_text())
     limit = getattr(args, "limit", None)
     shown = els[:limit] if limit else els
+    if _is_json(args):
+        _print_json({
+            "window": win.window_text(),
+            "count": len(els),
+            "matches": [dict(_el_dict(el), index=i) for i, el in enumerate(shown)],
+        })
+        return
+    print("WINDOW: %s" % win.window_text())
     for i, el in enumerate(shown):
         print("[%d] %s" % (i, _describe(el)))
     if limit and len(els) > limit:
@@ -474,6 +527,12 @@ def _desktop_list(args):
     counts = {}
     for _hwnd, _title, d in _list_windows_with_desktop():
         counts[d] = counts.get(d, 0) + 1
+    if _is_json(args):
+        _print_json([
+            {"index": i, "guid": d, "current": d == cur, "windows": counts.get(d, 0)}
+            for i, d in enumerate(guids)
+        ])
+        return
     for i, d in enumerate(guids):
         print("#%d %s%s  (%d windows)" % (i, d, "  [current]" if d == cur else "", counts.get(d, 0)))
 
@@ -481,11 +540,17 @@ def _desktop_list(args):
 def _desktop_windows(args):
     guids = _vdesk_guids()
     want = getattr(args, "desktop", None)
+    rows = []
     for hwnd, title, d in _list_windows_with_desktop():
         i = guids.index(d) if d in guids else -1
         if want is not None and i != want:
             continue
-        print("desktop=#%s | hwnd=%s | %s" % (i, hwnd, title))
+        rows.append({"desktop": i, "hwnd": hwnd, "title": title})
+    if _is_json(args):
+        _print_json(rows)
+        return
+    for r in rows:
+        print("desktop=#%s | hwnd=%s | %s" % (r["desktop"], r["hwnd"], r["title"]))
 
 
 def _desktop_where(args, bool_only):
@@ -498,11 +563,17 @@ def _desktop_where(args, bool_only):
     hwnd = wintypes.HWND(int(h))
     if bool_only:
         on = vdm.IsWindowOnCurrentVirtualDesktop(hwnd)
+        if _is_json(args):
+            _print_json({"on_current": bool(on)})
+            return
         print("on_current=%s" % ("True" if on else "False"))
         return
     guids = _vdesk_guids()
     d = _guid_norm(vdm.GetWindowDesktopId(hwnd))
     i = guids.index(d) if d in guids else -1
+    if _is_json(args):
+        _print_json({"desktop": i, "guid": d})
+        return
     print("desktop=#%d %s" % (i, d))
 
 
@@ -596,12 +667,20 @@ $file = Await ([Windows.Storage.StorageFile]::GetFileFromPathAsync($Path)) ([Win
 $stream = Await ($file.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStream])
 $decoder = Await ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
 $bitmap = Await ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
-$engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
-if (-not $engine) {
+$engine = $null
+$lang = $env:PCTR_OCR_LANG
+if ($lang) {
   $null = [Windows.Globalization.Language,Windows.Foundation,ContentType=WindowsRuntime]
-  $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage((New-Object Windows.Globalization.Language 'en-US'))
+  $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage((New-Object Windows.Globalization.Language $lang))
+  if (-not $engine) { Write-Error ("OCR language not available on this system: " + $lang); exit 2 }
+} else {
+  $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
+  if (-not $engine) {
+    $null = [Windows.Globalization.Language,Windows.Foundation,ContentType=WindowsRuntime]
+    $engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage((New-Object Windows.Globalization.Language 'en-US'))
+  }
+  if (-not $engine) { Write-Error 'no OCR engine available'; exit 2 }
 }
-if (-not $engine) { Write-Error 'no OCR engine available'; exit 2 }
 $res = Await ($engine.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrResult])
 $out = foreach ($line in $res.Lines) { foreach ($w in $line.Words) { [pscustomobject]@{ text = $w.Text; x = [int]$w.BoundingRect.X; y = [int]$w.BoundingRect.Y; w = [int]$w.BoundingRect.Width; h = [int]$w.BoundingRect.Height } } }
 ConvertTo-Json -Compress -InputObject @($out)
@@ -616,7 +695,7 @@ def _pctr_tempdir():
     return d
 
 
-def _windows_ocr(image_path):
+def _windows_ocr(image_path, lang=None):
     import base64
     import json
     import os
@@ -628,6 +707,10 @@ def _windows_ocr(image_path):
     enc = base64.b64encode(ps.encode("utf-16-le")).decode("ascii")
     env = dict(os.environ)
     env["PCTR_OCR_PATH"] = image_path
+    if lang:
+        env["PCTR_OCR_LANG"] = lang
+    else:
+        env.pop("PCTR_OCR_LANG", None)
     out = subprocess.run(
         ["powershell", "-NoProfile", "-NonInteractive", "-EncodedCommand", enc],
         capture_output=True, text=True, env=env,
@@ -656,7 +739,7 @@ def _ocr_capture(args):
         img = pyautogui.screenshot()
     try:
         img.save(path)
-        words = _windows_ocr(path)
+        words = _windows_ocr(path, getattr(args, "lang", None))
     finally:
         try:
             os.remove(path)
@@ -667,6 +750,12 @@ def _ocr_capture(args):
 
 def cmd_ocr(args):
     words, ox, oy = _ocr_capture(args)
+    if _is_json(args):
+        _print_json([
+            {"text": w["text"], "x": ox + w["x"], "y": oy + w["y"], "w": w["w"], "h": w["h"]}
+            for w in words
+        ])
+        return
     for w in words:
         print("%s | %d,%d %dx%d" % (w["text"], ox + w["x"], oy + w["y"], w["w"], w["h"]))
     print("(%d words)" % len(words))
@@ -677,6 +766,13 @@ def cmd_ocrfind(args):
     words, ox, oy = _ocr_capture(args)
     rx = re.compile(args.text, re.I)
     hits = [w for w in words if rx.search(w["text"])]
+    if _is_json(args):
+        _print_json([
+            {"text": w["text"], "x": ox + w["x"], "y": oy + w["y"], "w": w["w"], "h": w["h"],
+             "cx": ox + w["x"] + w["w"] // 2, "cy": oy + w["y"] + w["h"] // 2}
+            for w in hits
+        ])
+        return
     for i, w in enumerate(hits):
         print("[%d] %s | center=%d,%d" % (i, w["text"], ox + w["x"] + w["w"] // 2, oy + w["y"] + w["h"] // 2))
     if not hits:
@@ -762,6 +858,13 @@ def _look_detect(args):
 
 def cmd_look(args):
     dets = _look_detect(args)
+    if _is_json(args):
+        _print_json([
+            {"label": d["label"], "conf": round(d["conf"], 4), "x": d["x"], "y": d["y"],
+             "box": list(d["box"]), "index": i}
+            for i, d in enumerate(dets)
+        ])
+        return
     for i, d in enumerate(dets):
         print("[%d] %s %.2f | center=%d,%d | box=%d,%d,%d,%d" % (i, d["label"], d["conf"], d["x"], d["y"], *d["box"]))
     if not dets:
@@ -829,6 +932,200 @@ def cmd_setup(args):
     print("done. restart your agent so it loads the skill.")
 
 
+MCP_DEFAULT_PORT = 8765
+
+
+def _mcp_statefile():
+    import os
+    return os.path.join(_pctr_tempdir(), "mcp.json")
+
+
+def _pid_alive(pid):
+    import ctypes
+    k = ctypes.windll.kernel32
+    h = k.OpenProcess(0x1000, False, int(pid))  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not h:
+        return False
+    k.CloseHandle(h)
+    return True
+
+
+def _mcp_state():
+    import json
+    import os
+    p = _mcp_statefile()
+    if not os.path.exists(p):
+        return None
+    try:
+        with open(p, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def _mcp_running():
+    st = _mcp_state()
+    if st and st.get("pid") and _pid_alive(st["pid"]):
+        return st
+    return None
+
+
+def _mcp_port_open(host, port, timeout=0.5):
+    import socket
+    s = socket.socket()
+    s.settimeout(timeout)
+    try:
+        s.connect((host, int(port)))
+        return True
+    except OSError:
+        return False
+    finally:
+        s.close()
+
+
+def _mcp_sdk_version():
+    try:
+        from importlib.metadata import version
+        return version("mcp")
+    except Exception:
+        return None
+
+
+def _mcp_help():
+    print("pctr mcp - manage the pctr MCP server\n")
+    print("usage: pctr mcp [start|stop|restart|status|help] [options]\n")
+    print("  start    start the server (stdio foreground, or http/sse in the background)")
+    print("  stop     stop a background server started with `start`")
+    print("  restart  stop (if running) then start")
+    print("  status   show SDK + server state")
+    print("  help     this text\n")
+    print("options:")
+    print("  --transport stdio|sse|streamable-http   (default: stdio)")
+    print("  --host HOST                             (default: 127.0.0.1)")
+    print("  --port PORT                             (default: %d)" % MCP_DEFAULT_PORT)
+    print("  --foreground                            run http/sse in the foreground")
+    print()
+    print("register with an MCP client (stdio):")
+    print('  { "command": "pctr-mcp" }')
+    print("or (http):")
+    print('  { "url": "http://127.0.0.1:%d/mcp" }' % MCP_DEFAULT_PORT)
+    print()
+    print('needs the SDK:  pip install "pctr[mcp]"')
+
+
+def _mcp_status(args):
+    ver = _mcp_sdk_version()
+    print("MCP SDK: %s" % (("mcp " + ver) if ver else 'NOT installed (pip install "pctr[mcp]")'))
+    st = _mcp_running()
+    if not st:
+        print("server:  not running")
+        return
+    host = st.get("host", "127.0.0.1")
+    port = st.get("port")
+    reach = _mcp_port_open(host, port) if port else False
+    print("server:  running  pid=%s transport=%s %s:%s reachable=%s" % (
+        st.get("pid"), st.get("transport"), host, port, "yes" if reach else "no"))
+
+
+def _mcp_start(args):
+    import os
+    import subprocess
+    running = _mcp_running()
+    if running:
+        _fail("pctr MCP already running (pid=%s); use `pctr mcp restart`" % running["pid"])
+    transport = args.transport
+    if transport == "stdio":
+        from pctr import mcp_server
+        mcp_server.server.run(transport="stdio")
+        return
+    log = os.path.join(_pctr_tempdir(), "mcp.log")
+    cmd = [sys.executable, "-m", "pctr.mcp_server", "--transport", transport,
+           "--host", args.host, "--port", str(args.port)]
+    flags = 0x00000008 | 0x00000200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+    with open(log, "ab") as lf:
+        p = subprocess.Popen(cmd, creationflags=flags, close_fds=True, stdin=subprocess.DEVNULL,
+                             stdout=lf, stderr=subprocess.STDOUT)
+    import json
+    with open(_mcp_statefile(), "w", encoding="utf-8") as f:
+        json.dump({"pid": p.pid, "transport": transport, "host": args.host, "port": args.port}, f)
+    for _ in range(24):
+        time.sleep(0.25)
+        if _mcp_port_open(args.host, args.port):
+            break
+    reach = _mcp_port_open(args.host, args.port)
+    path = "/sse" if transport == "sse" else "/mcp"
+    print("pctr MCP started: pid=%s transport=%s  http://%s:%s%s  reachable=%s" % (
+        p.pid, transport, args.host, args.port, path, "yes" if reach else "no"))
+    print("logs: %s" % log)
+
+
+def _mcp_stop(args):
+    import os
+    import subprocess
+    st = _mcp_running()
+    if not st:
+        try:
+            os.remove(_mcp_statefile())
+        except OSError:
+            pass
+        print("pctr MCP not running")
+        return
+    pid = st["pid"]
+    subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True)
+    try:
+        os.remove(_mcp_statefile())
+    except OSError:
+        pass
+    print("pctr MCP stopped (pid=%s)" % pid)
+
+
+def cmd_mcp(args):
+    action = getattr(args, "action", None) or "help"
+    if action in ("help", "info"):
+        return _mcp_help()
+    if action == "status":
+        return _mcp_status(args)
+    if action == "start":
+        return _mcp_start(args)
+    if action == "stop":
+        return _mcp_stop(args)
+    if action == "restart":
+        _mcp_stop(args)
+        return _mcp_start(args)
+
+
+def _run_file(path, json_default=False):
+    import shlex
+    ap = build_parser()
+    try:
+        with open(path, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except OSError as e:
+        _fail("cannot read --file %r: %s" % (path, e))
+    ran = 0
+    for i, raw in enumerate(lines, 1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        try:
+            argv = shlex.split(line)
+        except ValueError as e:
+            _fail("--file line %d: %s" % (i, e))
+        try:
+            a = ap.parse_args(argv)
+        except SystemExit:
+            _fail("--file line %d: bad command: %s" % (i, line))
+        if not getattr(a, "cmd", None):
+            _fail("--file line %d: no subcommand: %s" % (i, line))
+        if json_default and not getattr(a, "json_out", False):
+            a.json_out = True
+        print("pctr> %s" % line, file=sys.stderr)
+        _validate(a)
+        a.func(a)
+        ran += 1
+    print("ran %d command(s) from %s" % (ran, path), file=sys.stderr)
+
+
 def add_target(p, require_selector=False, require_window=False):
     p.add_argument("--title", default=None, help="Window title regex")
     p.add_argument("--process", type=int, default=None, help="Filter by process id")
@@ -858,25 +1155,41 @@ def _validate(args):
             _fail("provide at least one selector: --title / --process / --name / --control-type / --auto-id")
 
 
+def _add_json(p):
+    p.add_argument("--json", action="store_true", dest="json_out", default=argparse.SUPPRESS,
+                   help="Emit machine-readable JSON")
+
+
+def _add_lang(p):
+    p.add_argument("--lang", default=None, help="OCR language BCP-47 tag, e.g. en-US or de-DE")
+
+
 def build_parser():
     ap = argparse.ArgumentParser(prog="pctr", description=DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--version", action="version", version="pctr %s" % _VERSION)
+    ap.add_argument("--json", action="store_true", dest="json_out",
+                    help="Emit machine-readable JSON (windows/tree/find/ocr/ocrfind/look/desktop)")
+    ap.add_argument("--file", default=None,
+                    help="Run pctr commands from a file, one per line (# comments allowed)")
     sub = ap.add_subparsers(dest="cmd", required=False)
 
     w = sub.add_parser("windows", help="List top-level windows")
     w.add_argument("--filter", default=None)
     w.add_argument("--process", type=int, default=None, help="Only this process id")
+    _add_json(w)
     w.set_defaults(func=cmd_windows)
 
     t = sub.add_parser("tree", help="Dump UIA tree")
     add_target(t, require_window=True)
     t.add_argument("--depth", type=int, default=99)
     t.add_argument("--limit", type=int, default=400)
+    _add_json(t)
     t.set_defaults(func=cmd_tree)
 
     f = sub.add_parser("find", help="Find elements")
     add_target(f, require_window=True)
     f.add_argument("--limit", type=int, default=None, help="Show at most N matches")
+    _add_json(f)
     f.set_defaults(func=cmd_find)
 
     c = sub.add_parser("click", help="Click an element")
@@ -982,6 +1295,7 @@ def build_parser():
     dp.add_argument("--timeout", type=float, default=5.0)
     dp.add_argument("--desktop", type=int, default=None, help="Filter `windows` to this desktop index")
     dp.add_argument("--to", type=int, default=None, help="Target desktop index for move-window")
+    _add_json(dp)
     dp.set_defaults(func=cmd_desktop)
 
     dr = sub.add_parser("drag", help="Drag from --start to --end (x,y pairs)")
@@ -996,6 +1310,8 @@ def build_parser():
     oc.add_argument("--title", default=None)
     oc.add_argument("--process", type=int, default=None)
     oc.add_argument("--timeout", type=float, default=5.0)
+    _add_json(oc)
+    _add_lang(oc)
     oc.set_defaults(func=cmd_ocr)
 
     ocf = sub.add_parser("ocrfind", help="OCR then list words matching --text (with click centers)")
@@ -1003,6 +1319,8 @@ def build_parser():
     ocf.add_argument("--process", type=int, default=None)
     ocf.add_argument("--timeout", type=float, default=5.0)
     ocf.add_argument("--text", required=True)
+    _add_json(ocf)
+    _add_lang(ocf)
     ocf.set_defaults(func=cmd_ocrfind)
 
     occ = sub.add_parser("ocrclick", help="OCR then click the word matching --text")
@@ -1011,6 +1329,7 @@ def build_parser():
     occ.add_argument("--timeout", type=float, default=5.0)
     occ.add_argument("--text", required=True)
     occ.add_argument("--nth", type=int, default=0)
+    _add_lang(occ)
     occ.set_defaults(func=cmd_ocrclick)
 
     lk = sub.add_parser("look", help="Open-vocab detect objects by text prompt (YOLO-World)")
@@ -1020,6 +1339,7 @@ def build_parser():
     lk.add_argument("--timeout", type=float, default=5.0)
     lk.add_argument("--conf", type=float, default=None)
     lk.add_argument("--model", default=None)
+    _add_json(lk)
     lk.set_defaults(func=cmd_look)
 
     lkc = sub.add_parser("lookclick", help="Open-vocab detect then click the top match")
@@ -1043,12 +1363,30 @@ def build_parser():
     st.add_argument("--project", default=None)
     st.set_defaults(func=cmd_setup)
 
+    mc = sub.add_parser("mcp", help="Manage the pctr MCP server: start / stop / restart / status / help")
+    mc.add_argument("action", nargs="?", default="help",
+                    choices=["start", "stop", "restart", "status", "help", "info"])
+    mc.add_argument("--transport", choices=["stdio", "sse", "streamable-http"], default="stdio")
+    mc.add_argument("--host", default="127.0.0.1")
+    mc.add_argument("--port", type=int, default=MCP_DEFAULT_PORT)
+    mc.add_argument("--foreground", action="store_true", help="Run http/sse in the foreground")
+    mc.set_defaults(func=cmd_mcp)
+
     return ap
 
 
 def main():
     ap = build_parser()
     args = ap.parse_args()
+    if getattr(args, "file", None):
+        try:
+            return _run_file(args.file, json_default=bool(getattr(args, "json_out", False)))
+        except SystemExit:
+            raise
+        except KeyboardInterrupt:
+            raise SystemExit(130)
+        except Exception as e:
+            _fail("%s: %s" % (type(e).__name__, e))
     if not getattr(args, "cmd", None):
         ap.print_help()
         return

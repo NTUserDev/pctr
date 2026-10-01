@@ -11,15 +11,19 @@ mouse and keyboard input. On top of UIA it also offers **OCR**
 (`Windows.Media.Ocr`) and **YOLO-World** open-vocabulary detection for text and
 objects that aren't exposed as controls.
 
-![pctr driving Notepad by element name, then reading the text back with OCR](docs/demo.gif)
+![pctr driving by element name: enumerating windows, mapping virtual desktops, dumping the control tree, filling a field, then reading it back with OCR](docs/demo.gif)
 
-*UIA finds/clicks/sets controls by name; OCR reads the screen back. (Recorded with OBS, driven by pctr itself.)*
+*Driven entirely by pctr itself - list windows, map virtual desktops, dump a
+control tree, `set` a field, read it back with OCR, screenshot it, and YOLO-World
+detect. Recorded with OBS, which pctr also piloted.*
 
 ## Install
 
 ```bash
-pip install pctr
-pip install "pctr[vision]"   # adds ultralytics for `pctr look`
+pip install pctr             # core (UIA + OCR)
+pip install "pctr[vision]"   # + ultralytics, for `pctr look`
+pip install "pctr[mcp]"      # + MCP SDK, for the MCP server
+pip install "pctr[all]"      # everything
 ```
 
 Windows only.
@@ -46,6 +50,18 @@ Tools exposed: `pctr_windows`, `pctr_tree`, `pctr_find`, `pctr_click`,
 `pctr_shot`, `pctr_ocr`, `pctr_ocrfind`, `pctr_ocrclick`, `pctr_look`,
 `pctr_desktop`.
 
+Or run/manage it from the CLI:
+
+```bash
+pctr mcp status                                          # SDK + server state
+pctr mcp start --transport streamable-http --port 8765   # background HTTP server
+pctr mcp restart | pctr mcp stop
+pctr mcp help
+```
+
+`stdio` runs in the foreground (what a client spawns); `sse` / `streamable-http`
+run in the background, reachable at `http://127.0.0.1:8765/mcp` (or `…/sse`).
+
 ## Commands
 
 | Command | What it does |
@@ -66,12 +82,16 @@ Tools exposed: `pctr_windows`, `pctr_tree`, `pctr_find`, `pctr_click`,
 | `pctr move --x N --y N` / `down` / `up` / `hold --ms N` | Raw mouse control (`--direct` for games). |
 | `pctr drag --start x,y --end x,y [--duration S]` | Drag between two points. |
 | `pctr keydown / keyup --key a` / `keyhold --key w --ms 1500` | Hold keyboard keys (`--direct` for games). |
-| `pctr ocr [--title RE]` | OCR the screen/window; list words with boxes. |
-| `pctr ocrfind --text RE` | OCR then list matches with click centers (single words). |
-| `pctr ocrclick --text RE [--nth N]` | OCR then click a word. |
+| `pctr ocr [--title RE] [--lang TAG]` | OCR the screen/window; list words with boxes. |
+| `pctr ocrfind --text RE [--lang TAG]` | OCR then list matches with click centers (single words). |
+| `pctr ocrclick --text RE [--nth N] [--lang TAG]` | OCR then click a word. |
 | `pctr look --for "a dog" [--title RE] [--conf X]` | YOLO-World detect objects by text prompt. |
 | `pctr lookclick --for "a dog" [--nth N]` | Detect then click the top match. |
+| `pctr mcp <start\|stop\|restart\|status\|help>` | Manage the MCP server (stdio or background http/sse). |
 | `pctr skill [--install]` / `pctr setup` | Print/install the agent skill + an AGENTS.md section. |
+
+Global flags: `--json` (machine-readable output) and `--file FILE` (run a batch
+of commands from a file).
 
 Common filters: `--title` (regex), `--name` (regex), `--control-type`
 (`Button`, `Edit`, `Pane`, `MenuItem`, …), `--auto-id`, `--nth`, `--process`.
@@ -86,6 +106,33 @@ pctr tree  --title "Notepad" --limit 60      # see what's clickable
 pctr click --title "Notepad" --name "^File$"
 pctr set   --title "Notepad" --name "Text Editor" --text "hello"
 ```
+
+## JSON output
+
+Add `--json` (global, or per-command) for machine-readable output from
+`windows`, `tree`, `find`, `ocr`, `ocrfind`, `look`, and `desktop`:
+
+```bash
+pctr windows --json
+# [{"hwnd":1234,"pid":5678,"title":"Untitled - Notepad"}, ...]
+
+pctr desktop list --json
+# [{"index":0,"guid":"ae37…","current":true,"windows":11}, ...]
+
+pctr look --for "a car" --json
+# [{"label":"a car","conf":0.86,"x":512,"y":300,"box":[400,220,620,380]}, ...]
+```
+
+Progress and warnings go to stderr, so stdout stays valid JSON.
+
+## Batch files
+
+```bash
+pctr --file script.txt          # one command per line; # comments and blanks skipped
+pctr --json --file script.txt   # --json applies to every line
+```
+
+Stops on the first failing line and reports its line number.
 
 ## Virtual desktops
 
