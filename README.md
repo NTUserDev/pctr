@@ -25,6 +25,8 @@ detect. Recorded with OBS, which pctr also piloted.*
 pip install pctr             # core (UIA + OCR)
 pip install "pctr[vision]"   # + ultralytics, for `pctr look`
 pip install "pctr[mcp]"      # + MCP SDK, for the MCP server
+pip install "pctr[pad]"      # + vgamepad, for `pctr pad` (needs ViGEmBus)
+pip install "pctr[serial]"   # + pyserial, for `pctr hid` / the serial-hid backend
 pip install "pctr[all]"      # everything
 ```
 
@@ -89,6 +91,8 @@ run in the background, reachable at `http://127.0.0.1:8765/mcp` (or `…/sse`).
 | `pctr ocrclick --text RE [--nth N] [--lang TAG]` | OCR then click a word. |
 | `pctr look --for "a dog" [--title RE] [--conf X]` | YOLO-World detect objects by text prompt. |
 | `pctr lookclick --for "a dog" [--nth N]` | Detect then click the top match. |
+| `pctr pad <button\|stick\|trigger\|status>` | Virtual Xbox 360 gamepad via ViGEmBus. |
+| `pctr hid <action> --port COMx` | Serial-HID bridge to a real USB-HID microcontroller. |
 | `pctr mcp <start\|stop\|restart\|status\|help>` | Manage the MCP server (stdio or background http/sse). |
 | `pctr skill [--install]` / `pctr setup` | Print/install the agent skill + an AGENTS.md section. |
 
@@ -154,6 +158,49 @@ pctr desktop move-window --title RE --to N
   screen input). Raw mouse/keys only affect the active desktop.
 - **`move-window` is blocked on Windows 11** (third-party `MoveWindowToDesktop`
   returns `Access denied`); it works on Windows 10.
+
+## Raw input backends
+
+The OS flags `SendInput` events as injected, so anything built on user32 is
+detectable in principle. `pctr` can route raw mouse/keyboard through a different
+backend with `--backend`:
+
+| Backend | How | Detectable? |
+|---|---|---|
+| `pyautogui` (default / `sendinput`) | user32 `SendInput`, virtual keys | yes (`injected` flag) |
+| `pydirectinput` (or `--direct`) | `SendInput` with **scancodes** — better for DirectInput games | yes |
+| `serial-hid` | a **microcontroller presenting real USB HID** over serial | no — it *is* real hardware |
+
+```bash
+pctr move --backend pydirectinput --x 800 --y 400
+pctr keyhold --key w --ms 400 --backend pydirectinput
+pctr type --text "hi" --backend serial-hid --port COM5   # needs a board
+```
+
+Applies to `move` / `down` / `up` / `hold` / `keydown` / `keyup` / `keyhold` /
+`hotkey` / `drag` / `type` / `desktop`.
+
+### Gamepad
+
+```bash
+pip install "pctr[pad]"     # + the ViGEmBus driver
+pctr pad button  --name A --ms 150
+pctr pad button  --name DPAD_UP --ms 100
+pctr pad stick   --x 1.0 --y -0.5 --ms 400
+pctr pad trigger --right 1.0 --ms 300
+```
+
+### Serial-HID bridge
+
+Firmware protocol, newline-terminated ASCII:
+`MOVE x y` · `CLICK b` · `DOWN b` · `UP b` · `KEY k DOWN|UP` · `WRITE text` · `HOTKEY a+b`
+
+```bash
+pip install "pctr[serial]"
+pctr hid ports                                  # list COM ports
+pctr hid move --x 500 --y 300 --port COM5
+pctr hid type --text "hello" --port COM5
+```
 
 ## Exit codes
 

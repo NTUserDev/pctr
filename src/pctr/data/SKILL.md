@@ -55,6 +55,8 @@ back as `--name`, `--control-type`, `--auto-id`.
 | `ocrclick --text RE [--nth N] [--lang TAG]` | OCR then click a word. |
 | `look --for "a dog" [--title RE] [--conf X]` | YOLO-World detect objects by text prompt. |
 | `lookclick --for "a dog" [--nth N]` | Detect then click the top match. |
+| `pad <button\|stick\|trigger\|status>` | Virtual Xbox 360 gamepad via ViGEmBus (`pctr[pad]`). |
+| `hid <action> --port COMx` | Serial-HID bridge to a microcontroller that presents real USB HID. |
 | `mcp <start\|stop\|restart\|status\|help>` | Manage the MCP server (stdio or background http/sse). |
 | `skill [--install]` / `setup` | Print/install this skill + an AGENTS.md section. |
 
@@ -104,6 +106,48 @@ pctr --json --file script.txt # --json applies to every command in the file
 
 Stops on the first failing line and reports its line number. Each line is parsed
 exactly like a normal `pctr ...` invocation (same flags, same quoting rules).
+
+### Input backends
+
+Raw mouse/keyboard commands take `--backend`:
+
+- `pyautogui` (default) / `sendinput` — virtual keys via user32 `SendInput`.
+- `pydirectinput` (also `--direct`) — scancodes; better for DirectInput games.
+- `serial-hid` — talk to a **microcontroller presenting a real USB HID device**
+  (`--port COMx` or `PCTR_SERIAL_PORT`). Rawest option: the OS sees a genuine
+  keyboard/mouse, so there's no "injected" flag to detect.
+
+Applies to `move` / `down` / `up` / `hold` / `keydown` / `keyup` / `keyhold` /
+`hotkey` / `drag` / `type` / `desktop`.
+
+```bash
+pctr move --backend pydirectinput --x 800 --y 400
+pctr keyhold --key w --ms 400 --backend pydirectinput
+pctr type --text "hello" --backend serial-hid --port COM5
+```
+
+Gamepads (virtual Xbox 360 pad, needs the ViGEmBus driver):
+
+```bash
+pip install "pctr[pad]"
+pctr pad button  --name A --ms 150
+pctr pad button  --name DPAD_UP --ms 100
+pctr pad stick   --x 1.0 --y -0.5 --ms 400
+pctr pad trigger --right 1.0 --ms 300
+pctr pad status
+```
+
+Serial-HID firmware protocol (newline-terminated ASCII on the board):
+`MOVE x y` · `CLICK b` · `DOWN b` · `UP b` · `KEY k DOWN|UP` · `WRITE text` · `HOTKEY a+b`
+
+```bash
+pip install "pctr[serial]"
+pctr hid ports                              # list COM ports
+pctr hid move --x 500 --y 300 --port COM5
+pctr hid key  --key a --down --port COM5
+pctr hid type --text "hello" --port COM5
+pctr hid raw  --line "..." --port COM5
+```
 
 ## Patterns
 
@@ -174,6 +218,8 @@ pctr mcp help
 pip install pctr             # core (UIA + OCR)
 pip install "pctr[vision]"   # + ultralytics, for `pctr look`
 pip install "pctr[mcp]"      # + MCP SDK, for `pctr-mcp` / `pctr mcp`
-pip install "pctr[all]"      # all of the above
+pip install "pctr[pad]"      # + vgamepad, for `pctr pad` (needs ViGEmBus)
+pip install "pctr[serial]"   # + pyserial, for `pctr hid` / the serial-hid backend
+pip install "pctr[all]"      # everything
 pctr setup                   # installs this skill for opencode / claude / agents + appends to ./AGENTS.md
 ```

@@ -318,8 +318,8 @@ def cmd_type(args):
         except Exception as e:
             _fail("type failed (text has pywinauto key syntax like { } + ^ %% ~ ()): %s" % e)
     else:
-        import pyautogui
-        pyautogui.write(args.text, interval=delay)
+        m = _mouse_backend(args)
+        m.write(args.text, interval=delay)
     print("typed")
 
 
@@ -364,14 +364,78 @@ def cmd_shot(args):
     print("saved %s (%dx%d)" % (args.out, img.width, img.height))
 
 
-def _mouse_backend(args):
-    if getattr(args, "direct", False):
+class _SerialHID:
+    """Raw input via a microcontroller presenting a REAL USB HID device.
+
+    Talks newline-terminated ASCII over a serial port. Firmware protocol:
+      MOVE x y ; CLICK b ; DOWN b ; UP b ; KEY k DOWN|UP ; WRITE text ; HOTKEY a+b
+    Port from --port or the PCTR_SERIAL_PORT env var.
+    """
+
+    def __init__(self, port=None, baud=115200):
+        try:
+            import serial
+        except Exception as e:
+            raise RuntimeError('serial-hid needs pyserial: pip install "pctr[serial]" (%s)' % e)
+        port = port or __import__("os").environ.get("PCTR_SERIAL_PORT")
+        if not port:
+            raise RuntimeError("serial-hid needs a port: pass --port COMx or set PCTR_SERIAL_PORT")
+        self._ser = serial.Serial(port, baud, timeout=1)
+
+    def _send(self, line):
+        self._ser.write((line + "\n").encode("utf-8"))
+
+    def moveTo(self, x, y, duration=0.0):
+        self._send("MOVE %d %d" % (int(x), int(y)))
+
+    def mouseDown(self, button="left"):
+        self._send("DOWN %s" % button)
+
+    def mouseUp(self, button="left"):
+        self._send("UP %s" % button)
+
+    def click(self, button="left"):
+        self._send("CLICK %s" % button)
+
+    def keyDown(self, key):
+        self._send("KEY %s DOWN" % key)
+
+    def keyUp(self, key):
+        self._send("KEY %s UP" % key)
+
+    def write(self, text, interval=0.0):
+        self._send("WRITE %s" % text.replace("\r", "").replace("\n", "\\n"))
+
+    def hotkey(self, *keys):
+        self._send("HOTKEY %s" % "+".join(keys))
+
+
+def _resolve_input_backend(name, port=None):
+    name = (name or "auto").lower()
+    if name in ("", "auto", "pyautogui", "sendinput"):
+        import pyautogui
+        pyautogui.FAILSAFE = False
+        pyautogui.PAUSE = 0.01
+        return pyautogui
+    if name in ("pydirectinput", "direct"):
         import pydirectinput
-        pydirectinput.PAUSE = 0.01
+        pydirectinput.FAILSAFE = False
+        try:
+            pydirectinput.PAUSE = 0.01
+        except Exception:
+            pass
         return pydirectinput
-    import pyautogui
-    pyautogui.FAILSAFE = False
-    return pyautogui
+    if name in ("serial", "serial-hid", "hid"):
+        return _SerialHID(port)
+    raise RuntimeError("unknown backend %r (pyautogui | pydirectinput | serial-hid)" % name)
+
+
+def _mouse_backend(args):
+    name = getattr(args, "backend", None) or ("pydirectinput" if getattr(args, "direct", False) else "auto")
+    try:
+        return _resolve_input_backend(name, getattr(args, "port", None))
+    except RuntimeError as e:
+        _fail(str(e))
 
 
 def _parse_pair(text):
@@ -886,6 +950,117 @@ def cmd_lookclick(args):
     print("look-clicked %r (%.2f) at %d,%d" % (d["label"], d["conf"], d["x"], d["y"]))
 
 
+def _pad_button(vg, name):
+    key = "XUSB_GAMEPAD_" + name.strip().upper().replace(" ", "_").replace("-", "_")
+    return getattr(vg.XUSB_BUTTON, key, None)
+
+
+def cmd_pad(args):
+    action = args.action
+    try:
+        import vgamepad as vg
+    except Exception as e:
+        _fail('the pad backend needs vgamepad + the ViGEmBus driver: pip install "pctr[pad]" (%s)' % e)
+    if action == "status":
+        print("vgamepad %s present; a virtual Xbox 360 pad needs the ViGEmBus driver "
+              "(github.com/nefarius/ViGEmBus/releases)" % getattr(vg, "__version__", "?"))
+        return
+    pad = vg.VX360Gamepad()
+    ms = getattr(args, "ms", 200)
+    try:
+        if action == "button":
+            if not args.name:
+                _fail("pad button needs --name A|B|X|Y|LB|RB|BACK|START|DPAD_UP|...")
+            btn = _pad_button(vg, args.name)
+            if btn is None:
+                _fail("unknown button %r (try A, B, X, Y, LB, RB, BACK, START, LEFT_THUMB, RIGHT_THUMB, DPAD_UP/DOWN/LEFT/RIGHT)" % args.name)
+            pad.press_button(btn)
+            pad.update()
+            print("pad: %s down" % args.name)
+            time.sleep(ms / 1000.0)
+            pad.release_button(btn)
+            pad.update()
+        elif action == "stick":
+            side = (args.side or "left").lower()
+            if side == "right":
+                pad.right_joystick_float(x_value_float=args.x, y_value_float=args.y)
+            else:
+                pad.left_joystick_float(x_value_float=args.x, y_value_float=args.y)
+            pad.update()
+            print("pad: %s stick x=%.2f y=%.2f" % (side, args.x, args.y))
+            time.sleep(ms / 1000.0)
+            pad.left_joystick_float(0.0, 0.0)
+            pad.right_joystick_float(0.0, 0.0)
+            pad.update()
+        elif action == "trigger":
+            pad.left_trigger_float(value_float=args.left)
+            pad.right_trigger_float(value_float=args.right)
+            pad.update()
+            print("pad: triggers left=%.2f right=%.2f" % (args.left, args.right))
+            time.sleep(ms / 1000.0)
+            pad.left_trigger_float(0.0)
+            pad.right_trigger_float(0.0)
+            pad.update()
+        else:
+            _fail("unknown pad action %r" % action)
+    finally:
+        try:
+            pad.reset()
+            pad.update()
+        except Exception:
+            pass
+
+
+def cmd_hid(args):
+    action = args.action
+    try:
+        import serial
+    except Exception as e:
+        _fail('the hid bridge needs pyserial: pip install "pctr[serial]" (%s)' % e)
+    if action == "ports":
+        from serial.tools import list_ports
+        found = list(list_ports.comports())
+        for p in found:
+            print("%s | %s | %s" % (p.device, p.description, p.hwid))
+        if not found:
+            print("(no serial ports)")
+        return
+    import os
+    port = getattr(args, "port", None) or os.environ.get("PCTR_SERIAL_PORT")
+    if not port:
+        _fail("hid needs --port COMx (or set PCTR_SERIAL_PORT)")
+    if action == "move":
+        line = "MOVE %d %d" % (args.x, args.y)
+    elif action == "click":
+        line = "CLICK %s" % args.button
+    elif action == "down":
+        line = "DOWN %s" % args.button
+    elif action == "up":
+        line = "UP %s" % args.button
+    elif action == "key":
+        if not args.key:
+            _fail("hid key needs --key a")
+        line = "KEY %s %s" % (args.key, "DOWN" if getattr(args, "down", False) else "UP")
+    elif action == "type":
+        line = "WRITE %s" % (args.text or "").replace("\n", "\\n")
+    elif action == "hotkey":
+        if not args.keys:
+            _fail("hid hotkey needs --keys ctrl+s")
+        line = "HOTKEY %s" % args.keys
+    elif action == "raw":
+        if not args.line:
+            _fail("hid raw needs --line '...'")
+        line = args.line
+    else:
+        _fail("unknown hid action %r" % action)
+    ser = serial.Serial(port, getattr(args, "baud", 115200), timeout=1)
+    try:
+        ser.write((line + "\n").encode("utf-8"))
+    finally:
+        ser.close()
+    print("hid -> %s (%s)" % (line, port))
+
+
 SETUP_TARGETS = {
     "opencode": (".config/opencode/skills/pctr", "SKILL.md"),
     "claude": (".claude/skills/pctr", "SKILL.md"),
@@ -1164,6 +1339,13 @@ def _add_lang(p):
     p.add_argument("--lang", default=None, help="OCR language BCP-47 tag, e.g. en-US or de-DE")
 
 
+def _add_input(p):
+    p.add_argument("--backend", default=None,
+                   choices=["pyautogui", "sendinput", "pydirectinput", "direct", "serial-hid", "hid"],
+                   help="Input backend (default pyautogui; --direct == pydirectinput; serial-hid needs --port)")
+    p.add_argument("--port", default=None, help="Serial port for the serial-hid backend, e.g. COM5")
+
+
 def build_parser():
     ap = argparse.ArgumentParser(prog="pctr", description=DESCRIPTION, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--version", action="version", version="pctr %s" % _VERSION)
@@ -1215,6 +1397,7 @@ def build_parser():
     ty.add_argument("--delay", type=float, default=0.03, help="Seconds between chars/chunks")
     ty.add_argument("--chunk", type=int, default=1, help="Chunk size when typing into an element")
     ty.add_argument("--text", required=True)
+    _add_input(ty)
     ty.set_defaults(func=cmd_type)
 
     k = sub.add_parser("keys", help="Send a key combo globally")
@@ -1243,16 +1426,19 @@ def build_parser():
     mv.add_argument("--y", type=int, required=True)
     mv.add_argument("--duration", type=float, default=0.0)
     mv.add_argument("--direct", action="store_true", help="Use pydirectinput (games)")
+    _add_input(mv)
     mv.set_defaults(func=cmd_move)
 
     dn = sub.add_parser("down", help="Press and hold a mouse button")
     dn.add_argument("--button", default="left")
     dn.add_argument("--direct", action="store_true")
+    _add_input(dn)
     dn.set_defaults(func=cmd_down)
 
     up = sub.add_parser("up", help="Release a mouse button")
     up.add_argument("--button", default="left")
     up.add_argument("--direct", action="store_true")
+    _add_input(up)
     up.set_defaults(func=cmd_up)
 
     ho = sub.add_parser("hold", help="Press, hold for --ms, then release")
@@ -1261,27 +1447,32 @@ def build_parser():
     ho.add_argument("--x", type=int, default=None)
     ho.add_argument("--y", type=int, default=None)
     ho.add_argument("--direct", action="store_true")
+    _add_input(ho)
     ho.set_defaults(func=cmd_hold)
 
     kd = sub.add_parser("keydown", help="Press and hold a keyboard key")
     kd.add_argument("--key", required=True)
     kd.add_argument("--direct", action="store_true")
+    _add_input(kd)
     kd.set_defaults(func=cmd_keydown)
 
     ku = sub.add_parser("keyup", help="Release a keyboard key")
     ku.add_argument("--key", required=True)
     ku.add_argument("--direct", action="store_true")
+    _add_input(ku)
     ku.set_defaults(func=cmd_keyup)
 
     kh = sub.add_parser("keyhold", help="Press, hold for --ms, then release a key")
     kh.add_argument("--key", required=True)
     kh.add_argument("--ms", type=int, default=1000)
     kh.add_argument("--direct", action="store_true")
+    _add_input(kh)
     kh.set_defaults(func=cmd_keyhold)
 
     hk = sub.add_parser("hotkey", help="Send a key combo, e.g. --keys win+shift+s")
     hk.add_argument("--keys", required=True, help="Combo joined by +, e.g. ctrl+shift+t")
     hk.add_argument("--direct", action="store_true")
+    _add_input(hk)
     hk.set_defaults(func=cmd_hotkey)
 
     sz = sub.add_parser("size", help="Print primary screen size as WxH")
@@ -1296,6 +1487,7 @@ def build_parser():
     dp.add_argument("--desktop", type=int, default=None, help="Filter `windows` to this desktop index")
     dp.add_argument("--to", type=int, default=None, help="Target desktop index for move-window")
     _add_json(dp)
+    _add_input(dp)
     dp.set_defaults(func=cmd_desktop)
 
     dr = sub.add_parser("drag", help="Drag from --start to --end (x,y pairs)")
@@ -1304,6 +1496,7 @@ def build_parser():
     dr.add_argument("--button", default="left")
     dr.add_argument("--duration", type=float, default=0.3)
     dr.add_argument("--direct", action="store_true")
+    _add_input(dr)
     dr.set_defaults(func=cmd_drag)
 
     oc = sub.add_parser("ocr", help="OCR the screen (or a window) and list words with boxes")
@@ -1371,6 +1564,31 @@ def build_parser():
     mc.add_argument("--port", type=int, default=MCP_DEFAULT_PORT)
     mc.add_argument("--foreground", action="store_true", help="Run http/sse in the foreground")
     mc.set_defaults(func=cmd_mcp)
+
+    pd = sub.add_parser("pad", help="Virtual Xbox 360 gamepad via ViGEmBus: button / stick / trigger / status")
+    pd.add_argument("action", choices=["button", "stick", "trigger", "status"])
+    pd.add_argument("--name", default=None, help="Button: A, B, X, Y, LB, RB, BACK, START, LEFT_THUMB, DPAD_UP, ...")
+    pd.add_argument("--side", choices=["left", "right"], default="left", help="Stick side")
+    pd.add_argument("--x", type=float, default=0.0, help="Stick X (-1..1)")
+    pd.add_argument("--y", type=float, default=0.0, help="Stick Y (-1..1)")
+    pd.add_argument("--left", type=float, default=0.0, help="Left trigger (0..1)")
+    pd.add_argument("--right", type=float, default=0.0, help="Right trigger (0..1)")
+    pd.add_argument("--ms", type=int, default=200, help="How long to hold the input")
+    pd.set_defaults(func=cmd_pad)
+
+    hd = sub.add_parser("hid", help="Serial-HID bridge: drive a USB-HID microcontroller (rawest input)")
+    hd.add_argument("action", choices=["ports", "move", "click", "down", "up", "key", "type", "hotkey", "raw"])
+    hd.add_argument("--port", default=None, help="Serial port, e.g. COM5 (or PCTR_SERIAL_PORT)")
+    hd.add_argument("--baud", type=int, default=115200)
+    hd.add_argument("--x", type=int, default=0)
+    hd.add_argument("--y", type=int, default=0)
+    hd.add_argument("--button", default="left")
+    hd.add_argument("--key", default=None)
+    hd.add_argument("--down", action="store_true", help="Key down (default: up)")
+    hd.add_argument("--text", default="")
+    hd.add_argument("--keys", default=None)
+    hd.add_argument("--line", default=None, help="Raw protocol line for `hid raw`")
+    hd.set_defaults(func=cmd_hid)
 
     return ap
 

@@ -23,6 +23,9 @@ pctr look --for "a red error icon"    # fallback: open-vocab object detection
 - `--json` (global or per-command) gives machine-readable output for `windows/tree/find/ocr/ocrfind/look/desktop`; progress goes to stderr so stdout stays clean.
 - `--file FILE` runs a batch of commands (one per line, `#` comments, stops on first error).
 - `pctr ocr --lang de-DE` picks the OCR language (BCP-47).
+- Raw input backends: `--backend pyautogui|pydirectinput|serial-hid` (also `--direct`). `serial-hid` drives a real USB-HID microcontroller over `--port COMx` - the OS sees genuine hardware, so there is no "injected" flag.
+- Gamepad: `pctr pad button|stick|trigger|status` (needs `pip install "pctr[pad]"` + the ViGEmBus driver).
+- Hardware HID bridge: `pctr hid ports|move|click|down|up|key|type|hotkey|raw --port COMx` (needs `pip install "pctr[serial]"`).
 
 Run `pctr -h` for all commands. Full skill: `pctr skill`.
 MCP: `pip install "pctr[mcp]"`, then `pctr mcp start` (background http) or register `pctr-mcp` as a stdio server. Manage with `pctr mcp start|stop|restart|status|help`.
